@@ -49,3 +49,4 @@ idna==3.13
 toolz==1.1.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
+python-xlib

@@ -48,3 +48,9 @@ MAX_FRAGMENT_LEN = 200    # max UR fragment length for fountain coding
 
 # Show the yellow crosshair pointer when using the touchscreen (USB mouse always shows it when present).
 SHOW_TOUCH_CURSOR = True
+
+# Touch input backend:
+# - "x11": read pointer/button from X11 (respects xorg touchscreen calibration)
+# - "evdev": read raw /dev/input events directly
+# - "auto": try X11 first, then fallback to evdev
+TOUCH_INPUT_BACKEND = "x11"

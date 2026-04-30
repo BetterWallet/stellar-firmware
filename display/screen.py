@@ -4,8 +4,9 @@ Display loop: consumes RenderEvent from render_queue and drives the SPI framebuf
 SDL's fbcon driver does not support 16-bit (RGB565) framebuffers, so we render
 into an offscreen pygame Surface and write raw RGB565 bytes directly to /dev/fb1.
 
-Touch and mouse input are read via evdev since SDL input is unavailable with
-the offscreen video driver.  Status LEDs are driven based on current screen.
+Touch/mouse input are read via X11 (preferred) or evdev fallback since SDL
+input is unavailable with the offscreen video driver. Status LEDs are driven
+based on current screen.
 """
 import asyncio
 import logging
@@ -18,6 +19,7 @@ from config import (
     DISPLAY_WIDTH,
     SCAN_PREVIEW_ENABLED,
     SHOW_TOUCH_CURSOR,
+    TOUCH_INPUT_BACKEND,
 )
 from state.states import ButtonEvent, PINEvent
 
@@ -118,6 +120,12 @@ def _find_mouse_device():
         except Exception:
             continue
     return None
+
+
+def _scale_axis(value: int, src_max: int, dst_max: int) -> int:
+    if src_max <= 0 or dst_max <= 0:
+        return 0
+    return max(0, min(dst_max, int(value * dst_max / src_max)))
 
 
 def _handle_click(pos: tuple[int, int], state: dict, event_queue: asyncio.Queue):
@@ -272,7 +280,56 @@ async def display_loop(render_queue: asyncio.Queue, event_queue: asyncio.Queue, 
             else:
                 await asyncio.sleep(1.0 / 30)
 
-    async def _touch_loop():
+    async def _touch_loop_x11() -> bool:
+        try:
+            from Xlib import X, display as xdisplay
+        except Exception:
+            log.info("python-xlib unavailable — cannot use x11 touch input")
+            return False
+
+        display_name = os.environ.get("DISPLAY", ":0")
+        try:
+            dpy = xdisplay.Display(display_name)
+        except Exception as exc:
+            log.info("x11 display unavailable (%s) — falling back to evdev touch", exc)
+            return False
+
+        screen_info = dpy.screen()
+        root = screen_info.root
+        x11_w = max(1, int(screen_info.width_in_pixels))
+        x11_h = max(1, int(screen_info.height_in_pixels))
+        prev_pressed = False
+        log.info("touch_loop started — backend=x11 display=%s size=%dx%d", display_name, x11_w, x11_h)
+
+        try:
+            while True:
+                pointer = root.query_pointer()
+                px = max(0, min(x11_w - 1, int(pointer.root_x)))
+                py = max(0, min(x11_h - 1, int(pointer.root_y)))
+                sx = _scale_axis(px, x11_w - 1, DISPLAY_WIDTH - 1)
+                sy = _scale_axis(py, x11_h - 1, DISPLAY_HEIGHT - 1)
+
+                if SHOW_TOUCH_CURSOR:
+                    state["cursor"] = (sx, sy)
+                    state["cursor_visible"] = True
+
+                pressed = bool(pointer.mask & X.Button1Mask)
+                if pressed and not prev_pressed:
+                    coro = _handle_click((sx, sy), state, event_queue)
+                    if coro is not None:
+                        await coro
+                prev_pressed = pressed
+                await asyncio.sleep(0.01)
+        except Exception as exc:
+            log.warning("x11 touch loop failed (%s) — falling back to evdev touch", exc)
+            return False
+        finally:
+            try:
+                dpy.close()
+            except Exception:
+                pass
+
+    async def _touch_loop_evdev():
         try:
             import evdev
             from evdev import ecodes
@@ -286,13 +343,23 @@ async def display_loop(render_queue: asyncio.Queue, event_queue: asyncio.Queue, 
             return
 
         dev = evdev.InputDevice(dev_path)
-        log.info("touch_loop started — %s (%s)", dev_path, dev.name)
+        log.info("touch_loop started — backend=evdev path=%s name=%s", dev_path, dev.name)
 
         raw_x, raw_y = 0, 0
+        try:
+            abs_x = dev.absinfo(ecodes.ABS_X)
+            raw_x_max = abs_x.max if abs_x and abs_x.max > 0 else _TOUCH_MAX_X
+        except Exception:
+            raw_x_max = _TOUCH_MAX_X
+        try:
+            abs_y = dev.absinfo(ecodes.ABS_Y)
+            raw_y_max = abs_y.max if abs_y and abs_y.max > 0 else _TOUCH_MAX_Y
+        except Exception:
+            raw_y_max = _TOUCH_MAX_Y
 
         def _touch_to_screen() -> tuple[int, int]:
-            sx = max(0, min(DISPLAY_WIDTH - 1, int(raw_x * DISPLAY_WIDTH / _TOUCH_MAX_X)))
-            sy = max(0, min(DISPLAY_HEIGHT - 1, int(raw_y * DISPLAY_HEIGHT / _TOUCH_MAX_Y)))
+            sx = _scale_axis(raw_x, raw_x_max, DISPLAY_WIDTH - 1)
+            sy = _scale_axis(raw_y, raw_y_max, DISPLAY_HEIGHT - 1)
             return sx, sy
 
         async for event in dev.async_read_loop():
@@ -311,6 +378,21 @@ async def display_loop(render_queue: asyncio.Queue, event_queue: asyncio.Queue, 
                 coro = _handle_click((sx, sy), state, event_queue)
                 if coro is not None:
                     await coro
+
+    async def _touch_loop():
+        backend = TOUCH_INPUT_BACKEND.lower().strip()
+        if backend not in ("auto", "x11", "evdev"):
+            log.warning("invalid TOUCH_INPUT_BACKEND=%r; expected auto/x11/evdev, using auto", backend)
+            backend = "auto"
+
+        if backend in ("auto", "x11"):
+            ok = await _touch_loop_x11()
+            if ok:
+                return
+            if backend == "x11":
+                return
+
+        await _touch_loop_evdev()
 
     async def _mouse_loop():
         try:
