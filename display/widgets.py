@@ -1,10 +1,8 @@
 """
 Shared rendering primitives used by screen modules.
 """
-import qrcode
-from PIL import Image
-
 from config import DISPLAY_HEIGHT, DISPLAY_WIDTH, QR_DISPLAY_SIZE
+from display.qr import QR
 
 _FONT_CACHE: dict = {}
 
@@ -34,23 +32,34 @@ def render_text_centered(surface, text: str, center: tuple[int, int], color=(255
     surface.blit(surf, rect)
 
 
-def render_qr(surface, data: str, center: tuple[int, int], size: int = QR_DISPLAY_SIZE):
+_QR = QR()
+
+
+def render_qr(
+    surface,
+    data: str,
+    center: tuple[int, int],
+    size: int = QR_DISPLAY_SIZE,
+    *,
+    style: int = QR.STYLE__DEFAULT,
+    background_color: str = "white",
+    border: int = 3,
+    error_correction: str = "M",
+):
     """Render a QR code (from a UR string or any string) centered at `center`."""
     import pygame
 
-    qr = qrcode.QRCode(
-        error_correction=qrcode.constants.ERROR_CORRECT_M,
-        box_size=4,
-        border=4,
-    )
-    qr.add_data(data)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
-    img = img.resize((size, size), Image.NEAREST)
+    img = _QR.qrimage(
+        data,
+        width=size,
+        height=size,
+        border=border,
+        style=style,
+        background_color=background_color,
+        error_correction=error_correction,
+    ).convert("RGB")
 
-    # Convert PIL → pygame surface
-    img_bytes = img.tobytes()
-    pg_surf = pygame.image.fromstring(img_bytes, img.size, "RGB")
+    pg_surf = pygame.image.fromstring(img.tobytes(), img.size, "RGB")
     rect = pg_surf.get_rect(center=center)
     surface.blit(pg_surf, rect)
 

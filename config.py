@@ -10,7 +10,11 @@ CAMERA_FPS = 30
 # Full-sensor 2592x1944 exceeds GPU memory on most Pi configs.
 RIBBON_CAMERA_WIDTH = 1296
 RIBBON_CAMERA_HEIGHT = 972
-CAMERA_PREVIEW_ROTATION = 180
+# LCD preview and scan decode can use different rotations depending on physical
+# camera/display mounting. Current calibrated setup:
+# - preview: what user sees while aiming
+# - scan: rotation used by decoder
+CAMERA_PREVIEW_ROTATION = 0
 CAMERA_SCAN_ROTATION = 180
 # Camera backend: "usb" for /dev/video* webcams, "ribbon" for the Pi CSI camera.
 # The ribbon camera is the recommended production path for animated QR scanning.

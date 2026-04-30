@@ -8,7 +8,13 @@ from display.widgets import render_qr, render_text_centered
 
 def render(surface, address: str) -> None:
     render_text_centered(surface, "Cold Wallet — Ready", (DISPLAY_WIDTH // 2, 12), size=16, color=(100, 200, 255))
-    render_qr(surface, address, center=(DISPLAY_WIDTH // 2, DISPLAY_HEIGHT // 2 - 5), size=180)
+    render_qr(
+        surface,
+        address,
+        center=(DISPLAY_WIDTH // 2, DISPLAY_HEIGHT // 2 - 5),
+        size=180,
+        error_correction="H",
+    )
     # Truncated address
     short = address[:10] + "..." + address[-8:]
     render_text_centered(surface, short, (DISPLAY_WIDTH // 2, DISPLAY_HEIGHT - 38), size=12, color=(160, 160, 160))

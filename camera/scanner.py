@@ -32,9 +32,18 @@ def _rotate_frame(frame: np.ndarray, rotation: int) -> np.ndarray:
     return np.rot90(frame, k=turns)
 
 
-def _normalize_fragment(text: str) -> str | None:
+def _normalize_fragment(text: str, *, accept_all: bool = False) -> str | None:
     text = text.strip()
+    if not text:
+        return None
+    if accept_all:
+        return text
+    # Production allowlist:
+    # - UR payloads (eth/xlm animated fragments)
+    # - bare SEP-7 Stellar URIs (single-QR flow)
     if text.lower().startswith("ur:"):
+        return text
+    if text.lower().startswith("web+stellar:"):
         return text
     return None
 
@@ -71,7 +80,7 @@ def _candidate_images(gray: np.ndarray, aggressive: bool):
         yield ("otsu", otsu)
 
 
-def _decode_pyzbar(image: np.ndarray) -> tuple[list[str], bool]:
+def _decode_pyzbar(image: np.ndarray, *, accept_all: bool = False) -> tuple[list[str], bool]:
     try:
         from pyzbar.pyzbar import decode, ZBarSymbol
     except ImportError:
@@ -86,13 +95,13 @@ def _decode_pyzbar(image: np.ndarray) -> tuple[list[str], bool]:
             text = result.data.decode("utf-8")
         except UnicodeDecodeError:
             continue
-        normalized = _normalize_fragment(text)
+        normalized = _normalize_fragment(text, accept_all=accept_all)
         if normalized:
             fragments.append(normalized)
     return fragments, decoded_any
 
 
-def _decode_opencv(image: np.ndarray) -> tuple[list[str], bool]:
+def _decode_opencv(image: np.ndarray, *, accept_all: bool = False) -> tuple[list[str], bool]:
     fragments: list[str] = []
     qr_seen = False
 
@@ -104,7 +113,7 @@ def _decode_opencv(image: np.ndarray) -> tuple[list[str], bool]:
     qr_seen = qr_seen or bool(ok) or points is not None
     if ok:
         for text in decoded_info:
-            normalized = _normalize_fragment(text)
+            normalized = _normalize_fragment(text, accept_all=accept_all)
             if normalized:
                 fragments.append(normalized)
     if fragments:
@@ -115,7 +124,7 @@ def _decode_opencv(image: np.ndarray) -> tuple[list[str], bool]:
     except Exception:
         text, points = "", None
     qr_seen = qr_seen or points is not None
-    normalized = _normalize_fragment(text)
+    normalized = _normalize_fragment(text, accept_all=accept_all)
     return ([normalized] if normalized else []), qr_seen
 
 
@@ -127,6 +136,7 @@ def scan_frame(
     decoder_mode: str = "hybrid",
     aggressive: bool = False,
     decode_max_size: int = 640,
+    accept_all: bool = False,
 ) -> ScanResult:
     """
     Decode all QR codes in a camera frame.
@@ -135,19 +145,30 @@ def scan_frame(
       1. Fast pass at *decode_max_size* — handles simple QR codes cheaply.
       2. Quality pass at 2× resolution (aggressive only) — catches dense
          animated-UR QR codes that need more pixels per module.
+
+    When *accept_all* is True, any decoded QR text is returned. Otherwise
+    only protocol payloads pass through (firmware default):
+      - `ur:` fragments
+      - bare `web+stellar:` SEP-7 URIs
     """
     frame = _rotate_frame(frame, rotation)
     frame = _crop_center(frame, roi_ratio)
 
+    def _pyzbar(img):
+        return _decode_pyzbar(img, accept_all=accept_all)
+
+    def _opencv(img):
+        return _decode_opencv(img, accept_all=accept_all)
+
     mode = decoder_mode.lower()
     if mode == "pyzbar":
-        decoders = (("pyzbar", _decode_pyzbar),)
+        decoders = (("pyzbar", _pyzbar),)
     elif mode == "opencv":
-        decoders = (("opencv", _decode_opencv),)
+        decoders = (("opencv", _opencv),)
     elif mode == "fast":
-        decoders = (("pyzbar", _decode_pyzbar),)
+        decoders = (("pyzbar", _pyzbar),)
     else:
-        decoders = (("pyzbar", _decode_pyzbar), ("opencv", _decode_opencv))
+        decoders = (("pyzbar", _pyzbar), ("opencv", _opencv))
 
     seen: set[str] = set()
     fragments: list[str] = []
