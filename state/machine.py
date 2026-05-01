@@ -425,9 +425,12 @@ def _load_xpub() -> CryptoHDKey | None:
 def _load_or_create_device_metadata() -> dict:
     device_file = Path(DEVICE_METADATA_PATH)
     if device_file.exists():
-        stored = json.loads(device_file.read_text())
-        if isinstance(stored, dict) and stored.get("id") and stored.get("label"):
-            return stored
+        try:
+            stored = json.loads(device_file.read_text())
+            if isinstance(stored, dict) and stored.get("id") and stored.get("label"):
+                return stored
+        except (OSError, json.JSONDecodeError):
+            log.warning("device metadata file is unreadable; regenerating")
 
     generated = {
         "id": str(uuid.uuid4()),

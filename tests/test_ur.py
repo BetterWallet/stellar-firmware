@@ -221,12 +221,12 @@ class TestEncoder:
 
         ur = self._decode_ur_payload(parts[0])
         payload = cbor2.loads(ur.cbor)
-        assert sorted(payload.keys()) == [
+        assert set(payload.keys()) == {
             "request_id",
             "signed_xdr",
             "signatures",
             "signer_pubkey",
-        ]
+        }
 
     def test_encode_bw_stellar_accounts(self):
         from ur.encoder import encode_bw_stellar_accounts

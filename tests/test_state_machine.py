@@ -6,6 +6,9 @@ All queues are mocked with asyncio.Queue. No Pi hardware required.
 import asyncio
 import json
 import pytest
+from urllib.parse import quote
+
+from stellar_sdk import Account, Asset, Network, TransactionBuilder
 
 from state.states import ButtonEvent, PINEvent, RenderEvent, State
 
@@ -31,6 +34,41 @@ def _make_sign_request(data_type: int = 3, sign_data: bytes = b"test"):
         chain_id=1,
         derivation_path="44'/60'/0'/0/0",
         address=None,
+    )
+
+
+def _make_xlm_sign_request(wallet, signer_pubkey: str, network_passphrase: str, sep7_pubkey: str | None = None):
+    from ur.types import XlmSignRequest
+
+    src = Account(account=wallet.xlm_address, sequence=42)
+    tx = (
+        TransactionBuilder(
+            source_account=src,
+            network_passphrase=network_passphrase,
+            base_fee=100,
+        )
+        .append_payment_op(
+            destination="GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+            asset=Asset.native(),
+            amount="1.0",
+        )
+        .set_timeout(30)
+        .build()
+    )
+    uri = (
+        f"web+stellar:tx"
+        f"?xdr={quote(tx.to_xdr(), safe='')}"
+        f"&network_passphrase={quote(network_passphrase, safe='')}"
+    )
+    if sep7_pubkey:
+        uri += f"&pubkey={quote(sep7_pubkey, safe='')}"
+
+    return XlmSignRequest(
+        request_id="req-test-1",
+        signer_pubkey=signer_pubkey,
+        network_passphrase=network_passphrase,
+        sep7_uri=uri,
+        kind="tx",
     )
 
 
@@ -112,6 +150,61 @@ class TestHandlers:
         )
         assert state == State.AWAIT_CONFIRM
 
+    @pytest.mark.asyncio
+    async def test_handle_parsed_rejects_unknown_stellar_signer(self):
+        from state.machine import _handle_parsed
+        from wallet import Wallet
+
+        wallet = Wallet("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
+        req = _make_xlm_sign_request(
+            wallet,
+            signer_pubkey="GAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            network_passphrase=Network.TESTNET_NETWORK_PASSPHRASE,
+        )
+        with pytest.raises(ValueError, match="does not match any local Stellar account"):
+            await _handle_parsed(wallet, req, asyncio.Queue())
+
+    @pytest.mark.asyncio
+    async def test_handle_parsed_rejects_network_mismatch(self):
+        from state.machine import _handle_parsed
+        from wallet import Wallet
+
+        wallet = Wallet("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
+        req = _make_xlm_sign_request(
+            wallet,
+            signer_pubkey=wallet.xlm_address,
+            network_passphrase=Network.PUBLIC_NETWORK_PASSPHRASE,
+        )
+        req.network_passphrase = Network.TESTNET_NETWORK_PASSPHRASE
+        with pytest.raises(ValueError, match="network passphrase mismatch"):
+            await _handle_parsed(wallet, req, asyncio.Queue())
+
+    @pytest.mark.asyncio
+    async def test_handle_parsed_rejects_sep7_pubkey_mismatch(self):
+        from state.machine import _handle_parsed
+        from wallet import Wallet
+
+        wallet = Wallet("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
+        req = _make_xlm_sign_request(
+            wallet,
+            signer_pubkey=wallet.xlm_address,
+            network_passphrase=Network.TESTNET_NETWORK_PASSPHRASE,
+            sep7_pubkey="GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+        )
+        with pytest.raises(ValueError, match="SEP-7 pubkey does not match"):
+            await _handle_parsed(wallet, req, asyncio.Queue())
+
+    def test_load_or_create_device_metadata_recovers_from_bad_json(self, tmp_path, monkeypatch):
+        from state import machine
+
+        bad_metadata = tmp_path / "device.json"
+        bad_metadata.write_text("{not-valid-json")
+        monkeypatch.setattr(machine, "DEVICE_METADATA_PATH", str(bad_metadata))
+
+        metadata = machine._load_or_create_device_metadata()
+        assert metadata["id"]
+        assert metadata["label"]
+
 
 # ---------------------------------------------------------------------------
 # Integration: full sign flow (mocked wallet)
@@ -145,43 +238,15 @@ class TestSignFlow:
     @pytest.mark.asyncio
     async def test_xlm_signing_produces_result_render(self):
         """A SEP-7 URI must drive _handle_signing through to a result QR."""
-        from urllib.parse import quote
-        from stellar_sdk import Account, Asset, Network, TransactionBuilder
-
         from state.machine import _handle_signing
         from wallet import Wallet
-        from ur.types import XlmSignRequest
 
         mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
         wallet = Wallet(mnemonic)
-
-        # Build a real testnet payment XDR
-        src = Account(account=wallet.xlm_address, sequence=42)
-        tx = (
-            TransactionBuilder(
-                source_account=src,
-                network_passphrase=Network.TESTNET_NETWORK_PASSPHRASE,
-                base_fee=100,
-            )
-            .append_payment_op(
-                destination="GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
-                asset=Asset.native(),
-                amount="1.0",
-            )
-            .set_timeout(30)
-            .build()
-        )
-        uri = (
-            f"web+stellar:tx"
-            f"?xdr={quote(tx.to_xdr(), safe='')}"
-            f"&network_passphrase={quote(Network.TESTNET_NETWORK_PASSPHRASE, safe='')}"
-        )
-        sign_request = XlmSignRequest(
-            request_id="req-test-1",
+        sign_request = _make_xlm_sign_request(
+            wallet,
             signer_pubkey=wallet.xlm_address,
             network_passphrase=Network.TESTNET_NETWORK_PASSPHRASE,
-            sep7_uri=uri,
-            kind="tx",
         )
 
         render_queue = asyncio.Queue()

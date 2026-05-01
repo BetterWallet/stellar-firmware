@@ -88,3 +88,11 @@ class TestXlmSign:
         )
         with pytest.raises(ValueError):
             xlm_signer.sign(kp, bad_req)
+
+    def test_sign_rejects_network_mismatch(self):
+        kp = derive.derive_xlm_keypair(_TEST_MNEMONIC)
+        xdr = _build_tx_xdr(kp.public_key, Network.TESTNET_NETWORK_PASSPHRASE)
+        req = _make_request(xdr, Network.TESTNET_NETWORK_PASSPHRASE)
+        req.network_passphrase = Network.PUBLIC_NETWORK_PASSPHRASE
+        with pytest.raises(ValueError, match="network passphrase mismatch"):
+            xlm_signer.sign(kp, req)
