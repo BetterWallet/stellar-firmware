@@ -33,17 +33,43 @@ class CryptoHDKey:
 
 @dataclass
 class XlmSignRequest:
-    """Stellar sign request.
-
-    The transport carries a SEP-7 URI rather than a bare XDR — SEP-7 is the
-    Stellar ecosystem's de-facto signing-request format, and packaging the
-    XDR + network passphrase together avoids ambiguity at the air gap.
-    """
-    request_id: bytes       # 16-byte UUID; synthesized for bare-SEP-7 inputs
-    sep7_uri: str           # web+stellar:tx?xdr=...&network_passphrase=...
+    """Stellar tx sign request from `ur:bw-stellar-sign-request`."""
+    request_id: str
+    signer_pubkey: str
+    network_passphrase: str
+    sep7_uri: str
+    kind: str = "tx"
 
 
 @dataclass
 class XlmSignature:
-    request_id: bytes
-    signed_envelope_xdr: str
+    request_id: str
+    signer_pubkey: str
+    signed_xdr: str
+    signatures: list[dict]
+
+
+@dataclass
+class XlmSignResult:
+    signed_xdr: str
+    signatures: list[bytes]
+
+
+@dataclass
+class BwStellarAccount:
+    publicKey: str
+    bipPath: str
+    label: str | None = None
+
+
+@dataclass
+class BwStellarDevice:
+    id: str
+    label: str
+    fwVersion: str | None = None
+
+
+@dataclass
+class BwStellarAccountsPayload:
+    device: BwStellarDevice
+    accounts: list[BwStellarAccount]

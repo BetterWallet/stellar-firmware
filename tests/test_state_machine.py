@@ -80,10 +80,11 @@ class TestHandlers:
     @pytest.mark.asyncio
     async def test_handle_parsed_personal_sign(self):
         from state.machine import _handle_parsed
+        from wallet import Wallet
 
         render_queue = asyncio.Queue()
         req = _make_sign_request(data_type=3, sign_data=b"test message")
-        state = await _handle_parsed(req, render_queue)
+        state = await _handle_parsed(Wallet("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"), req, render_queue)
         assert state == State.AWAIT_CONFIRM
         renders = await _drain_renders(render_queue)
         assert any(r.screen == "confirm" for r in renders)
@@ -91,6 +92,7 @@ class TestHandlers:
     @pytest.mark.asyncio
     async def test_handle_parsed_typed_data(self):
         from state.machine import _handle_parsed
+        from wallet import Wallet
 
         render_queue = asyncio.Queue()
         typed_data = {
@@ -103,7 +105,11 @@ class TestHandlers:
             data_type=2,
             sign_data=json.dumps(typed_data).encode(),
         )
-        state = await _handle_parsed(req, render_queue)
+        state = await _handle_parsed(
+            Wallet("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"),
+            req,
+            render_queue,
+        )
         assert state == State.AWAIT_CONFIRM
 
 
@@ -170,7 +176,13 @@ class TestSignFlow:
             f"?xdr={quote(tx.to_xdr(), safe='')}"
             f"&network_passphrase={quote(Network.TESTNET_NETWORK_PASSPHRASE, safe='')}"
         )
-        sign_request = XlmSignRequest(request_id=b"\xfe" * 16, sep7_uri=uri)
+        sign_request = XlmSignRequest(
+            request_id="req-test-1",
+            signer_pubkey=wallet.xlm_address,
+            network_passphrase=Network.TESTNET_NETWORK_PASSPHRASE,
+            sep7_uri=uri,
+            kind="tx",
+        )
 
         render_queue = asyncio.Queue()
         state, _decoder, req = await _handle_signing(wallet, sign_request, render_queue)
@@ -183,4 +195,4 @@ class TestSignFlow:
         result = next(r for r in renders if r.screen == "result")
         assert len(result.data["qr_frames"]) >= 1
         # XLM result is a UR fragment, not raw XDR
-        assert result.data["qr_frames"][0].startswith("ur:")
+        assert result.data["qr_frames"][0].startswith("ur:bw-stellar-signature")

@@ -36,6 +36,22 @@ class Wallet:
     def xlm_keypair(self):
         return _derive.derive_xlm_keypair(self._mnemonic)
 
+    @cached_property
+    def xlm_accounts(self):
+        return _derive.derive_xlm_accounts(self._mnemonic, count=5)
+
+    @cached_property
+    def _xlm_keypairs_by_public_key(self):
+        keypairs = {}
+        for account in self.xlm_accounts:
+            keypair = _derive.derive_xlm_keypair(self._mnemonic, index=account["index"])
+            keypairs[keypair.public_key] = {
+                "keypair": keypair,
+                "index": account["index"],
+                "bip_path": account["bip_path"],
+            }
+        return keypairs
+
     # ── public addresses ────────────────────────────────────────────────
     @property
     def eth_address(self) -> str:
@@ -45,11 +61,17 @@ class Wallet:
     def xlm_address(self) -> str:
         return self.xlm_keypair.public_key
 
+    def find_xlm_account(self, public_key: str):
+        return self._xlm_keypairs_by_public_key.get(public_key)
+
     # ── signing ─────────────────────────────────────────────────────────
     def sign(self, request):
         """Dispatch a sign request to the right chain. Returns chain-specific bytes/str."""
         if isinstance(request, EthSignRequest):
             return _eth.sign(self.eth_account, request)
         if isinstance(request, XlmSignRequest):
-            return _xlm.sign(self.xlm_keypair, request)
+            account = self.find_xlm_account(request.signer_pubkey)
+            if account is None:
+                raise ValueError("requested signer pubkey is not available on this device")
+            return _xlm.sign(account["keypair"], request)
         raise ValueError(f"unsupported sign request type: {type(request).__name__}")

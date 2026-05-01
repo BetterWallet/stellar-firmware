@@ -47,6 +47,17 @@ class TestSep7:
         assert req.callback is not None
         assert req.origin_domain == "example.com"
 
+    def test_parse_tolerates_custom_req_id_and_pubkey(self):
+        uri = (
+            "web+stellar:tx"
+            f"?xdr={_SAMPLE_XDR}"
+            "&req_id=request-abc"
+            "&pubkey=GB3JDWCQJCWMJ3IILWIGDTQJJC5567PGVEVXSCVPEQOTDN64VJBDQBYX"
+        )
+        req = sep7.parse(uri)
+        assert req.req_id == "request-abc"
+        assert req.pubkey and req.pubkey.startswith("G")
+
     def test_parse_rejects_pay_operation(self):
         with pytest.raises(ValueError, match="not supported"):
             sep7.parse("web+stellar:pay?destination=GABC&amount=10")

@@ -8,8 +8,17 @@ bc-ur is vendored in _bc_ur/ so these tests always run.
 """
 import pytest
 import cbor2
+from _bc_ur.ur_decoder import URDecoder as BCURDecoder
 
-from ur.types import EthSignRequest, EthSignature, CryptoHDKey
+from ur.types import (
+    BwStellarAccount,
+    BwStellarAccountsPayload,
+    BwStellarDevice,
+    CryptoHDKey,
+    EthSignRequest,
+    EthSignature,
+    XlmSignature,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +50,23 @@ def _make_eth_sign_request_cbor(
         4: chain_id,
         5: _make_keypath_cbor(path),
     })
+
+
+def _make_bw_stellar_sign_request_cbor(
+    req_id: str = "req-123",
+    signer_pubkey: str = "GB3JDWCQJCWMJ3IILWIGDTQJJC5567PGVEVXSCVPEQOTDN64VJBDQBYX",
+    network_passphrase: str = "Test SDF Network ; September 2015",
+    sep7_uri: str = "web+stellar:tx?xdr=AAAA&network_passphrase=Test%20SDF",
+) -> bytes:
+    return cbor2.dumps(
+        {
+            "kind": "tx",
+            "req_id": req_id,
+            "signer_pubkey": signer_pubkey,
+            "network_passphrase": network_passphrase,
+            "sep7_uri": sep7_uri,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -124,12 +150,31 @@ class TestDecoder:
         assert decoder.rejected_parts == 0
         assert decoder.last_part_accepted is False
 
+    def test_parse_bw_stellar_sign_request(self):
+        from ur.decoder import _parse_bw_stellar_sign_request
+
+        cbor_bytes = _make_bw_stellar_sign_request_cbor()
+        req = _parse_bw_stellar_sign_request(cbor_bytes)
+
+        assert req.kind == "tx"
+        assert req.request_id == "req-123"
+        assert req.signer_pubkey.startswith("G")
+        assert "Network" in req.network_passphrase
+        assert req.sep7_uri.startswith("web+stellar:tx")
+
 
 # ---------------------------------------------------------------------------
 # encoder
 # ---------------------------------------------------------------------------
 
 class TestEncoder:
+    @staticmethod
+    def _decode_ur_payload(part: str):
+        decoder = BCURDecoder()
+        assert decoder.receive_part(part) is True
+        assert decoder.is_complete() is True
+        return decoder.result_ur()
+
     def test_encode_eth_signature_single_part(self):
         from ur.encoder import encode_eth_signature
 
@@ -158,3 +203,51 @@ class TestEncoder:
         assert len(parts) >= 1
         for part in parts:
             assert part.lower().startswith("ur:crypto-hdkey")
+
+    def test_encode_bw_stellar_signature(self):
+        from ur.encoder import encode_xlm_signature
+
+        sig = XlmSignature(
+            request_id="request-1",
+            signer_pubkey="GB3JDWCQJCWMJ3IILWIGDTQJJC5567PGVEVXSCVPEQOTDN64VJBDQBYX",
+            signed_xdr="AAAA",
+            signatures=[{"bytes": "YWJj"}],
+        )
+        parts = encode_xlm_signature(sig)
+        assert isinstance(parts, list)
+        assert len(parts) >= 1
+        for part in parts:
+            assert part.lower().startswith("ur:bw-stellar-signature")
+
+        ur = self._decode_ur_payload(parts[0])
+        payload = cbor2.loads(ur.cbor)
+        assert sorted(payload.keys()) == [
+            "request_id",
+            "signed_xdr",
+            "signatures",
+            "signer_pubkey",
+        ]
+
+    def test_encode_bw_stellar_accounts(self):
+        from ur.encoder import encode_bw_stellar_accounts
+
+        payload = BwStellarAccountsPayload(
+            device=BwStellarDevice(id="device-1", label="Better Wallet"),
+            accounts=[
+                BwStellarAccount(
+                    publicKey="GB3JDWCQJCWMJ3IILWIGDTQJJC5567PGVEVXSCVPEQOTDN64VJBDQBYX",
+                    bipPath="m/44'/148'/0'",
+                    label="Account #1",
+                )
+            ],
+        )
+        parts = encode_bw_stellar_accounts(payload)
+        assert isinstance(parts, list)
+        assert len(parts) >= 1
+        for part in parts:
+            assert part.lower().startswith("ur:bw-stellar-accounts")
+
+        ur = self._decode_ur_payload(parts[0])
+        payload = cbor2.loads(ur.cbor)
+        assert sorted(payload.keys()) == ["accounts", "device"]
+        assert sorted(payload["accounts"][0].keys()) == ["bipPath", "label", "publicKey"]

@@ -16,10 +16,10 @@ Key material flow:
 from stellar_sdk import TransactionEnvelope
 
 from stellar import sep7
-from ur.types import XlmSignRequest
+from ur.types import XlmSignRequest, XlmSignResult
 
 
-def sign(keypair, request: XlmSignRequest) -> str:
+def sign(keypair, request: XlmSignRequest) -> XlmSignResult:
     """
     Sign the SEP-7 transaction in request and return the signed envelope XDR.
 
@@ -30,6 +30,13 @@ def sign(keypair, request: XlmSignRequest) -> str:
     if sep.xdr is None:
         raise ValueError("SEP-7 URI does not carry a transaction XDR")
 
+    if sep.network_passphrase != request.network_passphrase:
+        raise ValueError("network passphrase mismatch for Stellar signing request")
+
     envelope = TransactionEnvelope.from_xdr(sep.xdr, sep.network_passphrase)
     envelope.sign(keypair)
-    return envelope.to_xdr()
+    signatures = [bytes(sig.signature) for sig in envelope.signatures]
+    return XlmSignResult(
+        signed_xdr=envelope.to_xdr(),
+        signatures=signatures,
+    )

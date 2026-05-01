@@ -6,15 +6,12 @@ Uses foundation-ur (bc-ur) for the UR layer and cbor2 for CBOR parsing.
 
 Two transports are supported:
   - Animated UR fragments  → eth-sign-request (Ethereum / EIP-4527)
-                          → xlm-sign-request (Stellar — our own type)
-  - Single QR with a bare web+stellar: SEP-7 URI string
+                          → bw-stellar-sign-request (Stellar)
 """
-import os
 
 import cbor2
 from _bc_ur.ur_decoder import URDecoder as _URDecoder
 
-from stellar import sep7
 from ur.types import EthSignRequest, XlmSignRequest
 
 # CBOR tag for crypto-keypath (EIP-4527 / bc-ur spec)
@@ -36,15 +33,10 @@ def _decode_keypath(value) -> str:
 
 class URDecoder:
     """Wraps foundation-ur URDecoder. Feed string fragments, call result() when done.
-
-    A bare SEP-7 URI scanned in a single QR bypasses the UR fountain decoder
-    entirely — it is detected at receive_part_info() and stashed for return
-    by result(), so the state machine sees a unified completion signal.
     """
 
     def __init__(self):
         self._decoder = _URDecoder()
-        self._sep7_uri: str | None = None
         self.accepted_parts = 0
         self.rejected_parts = 0
         self.last_part_accepted = False
@@ -54,14 +46,7 @@ class URDecoder:
         return complete
 
     def receive_part_info(self, part: str) -> tuple[bool, bool]:
-        """Feed one QR payload (UR fragment or bare SEP-7 URI). Returns (accepted, complete)."""
-        # Bare SEP-7 URI in a single QR — accept immediately, mark complete.
-        if sep7.is_sep7(part):
-            self._sep7_uri = part
-            self.accepted_parts += 1
-            self.last_part_accepted = True
-            return True, True
-
+        """Feed one QR payload (UR fragment). Returns (accepted, complete)."""
         accepted = self._decoder.receive_part(part)
         self.last_part_accepted = accepted
         if accepted:
@@ -71,11 +56,9 @@ class URDecoder:
         return accepted, self._decoder.is_complete()
 
     def is_complete(self) -> bool:
-        return self._sep7_uri is not None or self._decoder.is_complete()
+        return self._decoder.is_complete()
 
     def progress(self) -> float:
-        if self._sep7_uri is not None:
-            return 1.0
         try:
             return self._decoder.estimated_percent_complete()
         except AttributeError:
@@ -83,22 +66,15 @@ class URDecoder:
 
     def result(self):
         """Return the decoded sign request (Eth or Xlm). Call only when complete."""
-        if self._sep7_uri is not None:
-            return XlmSignRequest(
-                request_id=os.urandom(16),
-                sep7_uri=self._sep7_uri,
-            )
-
         ur = self._decoder.result_ur()
         if ur.type == "eth-sign-request":
             return _parse_eth_sign_request(ur.cbor)
-        if ur.type == "xlm-sign-request":
-            return _parse_xlm_sign_request(ur.cbor)
+        if ur.type == "bw-stellar-sign-request":
+            return _parse_bw_stellar_sign_request(ur.cbor)
         raise ValueError(f"unexpected UR type: {ur.type!r}")
 
     def reset(self):
         self._decoder = _URDecoder()
-        self._sep7_uri = None
         self.accepted_parts = 0
         self.rejected_parts = 0
         self.last_part_accepted = False
@@ -130,15 +106,30 @@ def _parse_eth_sign_request(cbor_bytes: bytes) -> EthSignRequest:
     )
 
 
-def _parse_xlm_sign_request(cbor_bytes: bytes) -> XlmSignRequest:
-    """Parse a `ur:xlm-sign-request` payload.
-
-    Schema (mirroring eth-sign-request keying for visual parity):
-        1: request_id (bytes, 16)
-        2: sep7_uri   (str)
-    """
+def _parse_bw_stellar_sign_request(cbor_bytes: bytes) -> XlmSignRequest:
     data = cbor2.loads(cbor_bytes)
+    kind = data.get("kind")
+    if kind != "tx":
+        raise ValueError(f"unsupported bw-stellar-sign-request kind: {kind!r}")
+
+    req_id = data.get("req_id")
+    signer_pubkey = data.get("signer_pubkey")
+    network_passphrase = data.get("network_passphrase")
+    sep7_uri = data.get("sep7_uri")
+
+    if not isinstance(req_id, str) or not req_id:
+        raise ValueError("bw-stellar-sign-request missing req_id")
+    if not isinstance(signer_pubkey, str) or not signer_pubkey:
+        raise ValueError("bw-stellar-sign-request missing signer_pubkey")
+    if not isinstance(network_passphrase, str) or not network_passphrase:
+        raise ValueError("bw-stellar-sign-request missing network_passphrase")
+    if not isinstance(sep7_uri, str) or not sep7_uri:
+        raise ValueError("bw-stellar-sign-request missing sep7_uri")
+
     return XlmSignRequest(
-        request_id=data[1],
-        sep7_uri=data[2] if isinstance(data[2], str) else data[2].decode("utf-8"),
+        request_id=req_id,
+        signer_pubkey=signer_pubkey,
+        network_passphrase=network_passphrase,
+        sep7_uri=sep7_uri,
+        kind=kind,
     )

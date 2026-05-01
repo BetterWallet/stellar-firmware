@@ -5,17 +5,28 @@ This is the ONLY module that imports from wallet/.
 The decrypted Account lives only in local scope during SIGNING state.
 """
 import asyncio
+import base64
 import json
 import logging
 from pathlib import Path
+import uuid
 
-from config import BIP44_ACCOUNT_PATH, KEYSTORE_PATH, XPUB_PATH
+from config import (
+    BIP44_ACCOUNT_PATH,
+    DEVICE_LABEL,
+    DEVICE_METADATA_PATH,
+    KEYSTORE_PATH,
+    XPUB_PATH,
+)
 from eip712 import display as eip712_display
 from eip712 import parser as eip712_parser
 from state.states import ButtonEvent, PINEvent, RenderEvent, State
 from ur import decoder as ur_decoder_mod
 from ur import encoder as ur_encoder
 from ur.types import (
+    BwStellarAccount,
+    BwStellarAccountsPayload,
+    BwStellarDevice,
     CryptoHDKey,
     EthSignature,
     EthSignRequest,
@@ -61,7 +72,7 @@ async def run(
                 state, wallet = await _handle_locked(event_queue, render_queue)
 
             elif state == State.IDLE:
-                await render_queue.put(RenderEvent.idle(wallet.eth_address))
+                await render_queue.put(RenderEvent.idle(wallet.xlm_address))
                 state = await _handle_idle(event_queue)
 
             elif state == State.SCANNING:
@@ -74,7 +85,7 @@ async def run(
                     _drain_queue(scan_queue)
 
             elif state == State.PARSED:
-                state = await _handle_parsed(sign_request, render_queue)
+                state = await _handle_parsed(wallet, sign_request, render_queue)
 
             elif state == State.AWAIT_CONFIRM:
                 state, ur_decoder, sign_request = await _handle_await_confirm(
@@ -96,7 +107,7 @@ async def run(
                 state = State.IDLE
 
             elif state == State.SHOW_IMPORT:
-                state = await _handle_show_import(event_queue, render_queue)
+                state = await _handle_show_import(wallet, event_queue, render_queue)
 
             elif state == State.ERROR:
                 _camera_off()
@@ -245,7 +256,7 @@ async def _handle_scanning(
         return State.SCANNING, None, ur_decoder
 
 
-async def _handle_parsed(sign_request, render_queue: asyncio.Queue) -> State:
+async def _handle_parsed(wallet: Wallet, sign_request, render_queue: asyncio.Queue) -> State:
     if isinstance(sign_request, EthSignRequest):
         if sign_request.data_type == 2:
             typed_data = eip712_parser.parse(sign_request.sign_data)
@@ -255,7 +266,17 @@ async def _handle_parsed(sign_request, render_queue: asyncio.Queue) -> State:
             fields = eth_mod.format_fields(sign_request)
     elif isinstance(sign_request, XlmSignRequest):
         from stellar import sep7, parser as xlm_parser
+        if sign_request.kind != "tx":
+            raise ValueError(f"unsupported Stellar sign kind: {sign_request.kind!r}")
+        if not sign_request.signer_pubkey:
+            raise ValueError("missing signer public key")
+        if wallet.find_xlm_account(sign_request.signer_pubkey) is None:
+            raise ValueError("requested signer does not match any local Stellar account")
         sep = sep7.parse(sign_request.sep7_uri)
+        if sep.network_passphrase != sign_request.network_passphrase:
+            raise ValueError("network passphrase mismatch")
+        if sep.pubkey and sep.pubkey != sign_request.signer_pubkey:
+            raise ValueError("SEP-7 pubkey does not match signer public key")
         fields = xlm_parser.parse(sep.xdr, sep.network_passphrase)
     else:
         raise ValueError(f"unsupported sign request type: {type(sign_request).__name__}")
@@ -291,7 +312,17 @@ async def _handle_signing(
         sig = EthSignature(request_id=sign_request.request_id, signature=result)
         qr_frames = ur_encoder.encode_eth_signature(sig)
     elif isinstance(sign_request, XlmSignRequest):
-        sig = XlmSignature(request_id=sign_request.request_id, signed_envelope_xdr=result)
+        sig = XlmSignature(
+            request_id=sign_request.request_id,
+            signer_pubkey=sign_request.signer_pubkey,
+            signed_xdr=result.signed_xdr,
+            signatures=[
+                {
+                    "bytes": base64.b64encode(signature).decode("ascii"),
+                }
+                for signature in result.signatures
+            ],
+        )
         qr_frames = ur_encoder.encode_xlm_signature(sig)
     else:
         raise ValueError(f"unsupported sign request type: {type(sign_request).__name__}")
@@ -303,16 +334,27 @@ async def _handle_signing(
 
 
 async def _handle_show_import(
+    wallet: Wallet,
     event_queue: asyncio.Queue,
     render_queue: asyncio.Queue,
 ) -> State:
-    """Show the crypto-hdkey import QR. Pressing any button returns to IDLE."""
-    hdkey = _load_xpub()
-    if hdkey is None:
-        log.warning("no xpub found — cannot show import QR")
-        return State.IDLE
-
-    qr_frames = ur_encoder.encode_crypto_hdkey(hdkey)
+    """Show the Better Wallet Stellar account export QR."""
+    device_info = _load_or_create_device_metadata()
+    payload = BwStellarAccountsPayload(
+        device=BwStellarDevice(
+            id=device_info["id"],
+            label=device_info["label"],
+        ),
+        accounts=[
+            BwStellarAccount(
+                publicKey=account["public_key"],
+                bipPath=account["bip_path"],
+                label=f"Account #{account['index'] + 1}",
+            )
+            for account in wallet.xlm_accounts
+        ],
+    )
+    qr_frames = ur_encoder.encode_bw_stellar_accounts(payload)
     await render_queue.put(RenderEvent.result(qr_frames))
     await event_queue.get()
     return State.IDLE
@@ -378,5 +420,21 @@ def _load_xpub() -> CryptoHDKey | None:
         master_fingerprint=bytes.fromhex(data.get("master_fingerprint", "00000000")),
         parent_fingerprint=bytes.fromhex(data.get("parent_fingerprint", "00000000")),
     )
+
+
+def _load_or_create_device_metadata() -> dict:
+    device_file = Path(DEVICE_METADATA_PATH)
+    if device_file.exists():
+        stored = json.loads(device_file.read_text())
+        if isinstance(stored, dict) and stored.get("id") and stored.get("label"):
+            return stored
+
+    generated = {
+        "id": str(uuid.uuid4()),
+        "label": DEVICE_LABEL,
+    }
+    device_file.parent.mkdir(parents=True, exist_ok=True)
+    device_file.write_text(json.dumps(generated))
+    return generated
 
 

@@ -8,7 +8,12 @@ from _bc_ur.ur import UR
 from _bc_ur.ur_encoder import UREncoder as _UREncoder
 
 from config import MAX_FRAGMENT_LEN
-from ur.types import CryptoHDKey, EthSignature, XlmSignature
+from ur.types import (
+    BwStellarAccountsPayload,
+    CryptoHDKey,
+    EthSignature,
+    XlmSignature,
+)
 
 
 def encode_eth_signature(sig: EthSignature, max_fragment_len: int = MAX_FRAGMENT_LEN) -> list[str]:
@@ -29,16 +34,37 @@ def encode_eth_signature(sig: EthSignature, max_fragment_len: int = MAX_FRAGMENT
 def encode_xlm_signature(sig: XlmSignature, max_fragment_len: int = MAX_FRAGMENT_LEN) -> list[str]:
     """
     Encode XlmSignature → list of UR fragment strings for animated QR.
-
-    The payload is the signed envelope XDR string. Stellar transactions
-    are typically small enough that this collapses to a single QR, but
-    fountain coding is honoured for large multi-op envelopes.
     """
     cbor_bytes = cbor2.dumps({
-        1: sig.request_id,
-        2: sig.signed_envelope_xdr,
+        "request_id": sig.request_id,
+        "signer_pubkey": sig.signer_pubkey,
+        "signed_xdr": sig.signed_xdr,
+        "signatures": sig.signatures,
     })
-    ur = UR("xlm-signature", cbor_bytes)
+    ur = UR("bw-stellar-signature", cbor_bytes)
+    return _encode_to_parts(ur, max_fragment_len)
+
+
+def encode_bw_stellar_accounts(
+    payload: BwStellarAccountsPayload,
+    max_fragment_len: int = MAX_FRAGMENT_LEN,
+) -> list[str]:
+    cbor_bytes = cbor2.dumps({
+        "device": {
+            "id": payload.device.id,
+            "label": payload.device.label,
+            **({"fwVersion": payload.device.fwVersion} if payload.device.fwVersion else {}),
+        },
+        "accounts": [
+            {
+                "publicKey": account.publicKey,
+                "bipPath": account.bipPath,
+                **({"label": account.label} if account.label else {}),
+            }
+            for account in payload.accounts
+        ],
+    })
+    ur = UR("bw-stellar-accounts", cbor_bytes)
     return _encode_to_parts(ur, max_fragment_len)
 
 

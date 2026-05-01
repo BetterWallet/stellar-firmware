@@ -33,6 +33,8 @@ class Sep7Request:
     network_passphrase: str       # defaults to mainnet if omitted
     callback: str | None          # SEP-7 'callback' param, if any
     origin_domain: str | None     # SEP-7 'origin_domain' param, if any
+    req_id: str | None            # Better Wallet custom param
+    pubkey: str | None            # Better Wallet custom param
 
 
 def parse(uri: str) -> Sep7Request:
@@ -70,6 +72,8 @@ def parse(uri: str) -> Sep7Request:
 
     callback      = unquote(params["callback"][0])      if "callback"      in params else None
     origin_domain = unquote(params["origin_domain"][0]) if "origin_domain" in params else None
+    req_id        = unquote(params["req_id"][0])        if "req_id"        in params else None
+    pubkey        = unquote(params["pubkey"][0])        if "pubkey"        in params else None
 
     return Sep7Request(
         operation="tx",
@@ -77,6 +81,8 @@ def parse(uri: str) -> Sep7Request:
         network_passphrase=network_passphrase,
         callback=callback,
         origin_domain=origin_domain,
+        req_id=req_id,
+        pubkey=pubkey,
     )
 
 

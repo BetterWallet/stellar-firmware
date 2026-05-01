@@ -1,26 +1,17 @@
-"""
-Idle screen: show the wallet address as a QR code with instructions.
-Scanning screen: camera preview with progress overlay.
-"""
+"""Idle and scanning screens."""
 from config import DISPLAY_HEIGHT, DISPLAY_WIDTH, GPIO_CONFIRM_PIN, GPIO_REJECT_PIN
 from display.widgets import render_qr, render_text_centered
 
 
 def render(surface, address: str) -> None:
-    render_text_centered(surface, "Cold Wallet — Ready", (DISPLAY_WIDTH // 2, 12), size=16, color=(100, 200, 255))
-    render_qr(
-        surface,
-        address,
-        center=(DISPLAY_WIDTH // 2, DISPLAY_HEIGHT // 2 - 5),
-        size=180,
-        error_correction="H",
-    )
+    render_text_centered(surface, "Better Wallet — Ready", (DISPLAY_WIDTH // 2, 12), size=16, color=(100, 200, 255))
+    render_qr(surface, address, center=(DISPLAY_WIDTH // 2, DISPLAY_HEIGHT // 2 - 5), size=180, error_correction="H")
     # Truncated address
     short = address[:10] + "..." + address[-8:]
     render_text_centered(surface, short, (DISPLAY_WIDTH // 2, DISPLAY_HEIGHT - 38), size=12, color=(160, 160, 160))
     # Instructions
     render_text_centered(surface, f"[CONFIRM] Start scanning", (DISPLAY_WIDTH // 2, DISPLAY_HEIGHT - 22), size=11, color=(120, 200, 120))
-    render_text_centered(surface, f"[REJECT]  Show import QR", (DISPLAY_WIDTH // 2, DISPLAY_HEIGHT - 8), size=11, color=(180, 120, 120))
+    render_text_centered(surface, f"[REJECT]  Export account QR", (DISPLAY_WIDTH // 2, DISPLAY_HEIGHT - 8), size=11, color=(180, 120, 120))
 
 
 def render_scanning(surface, progress: float, overlay: bool = False, preview_enabled: bool = True) -> None:
