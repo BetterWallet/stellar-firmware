@@ -8,6 +8,9 @@ Two transports are supported:
   - Animated UR fragments  → eth-sign-request (Ethereum / EIP-4527)
                           → bw-stellar-sign-request (Stellar)
 """
+import base64
+import json
+import re
 
 import cbor2
 from _bc_ur.ur_decoder import URDecoder as _URDecoder
@@ -37,6 +40,9 @@ class URDecoder:
 
     def __init__(self):
         self._decoder = _URDecoder()
+        self._simple_bw_payload: str | None = None
+        self._simple_bw_type: str | None = None
+        self._simple_bw_parts: dict[str, dict] = {}
         self.accepted_parts = 0
         self.rejected_parts = 0
         self.last_part_accepted = False
@@ -47,6 +53,12 @@ class URDecoder:
 
     def receive_part_info(self, part: str) -> tuple[bool, bool]:
         """Feed one QR payload (UR fragment). Returns (accepted, complete)."""
+        simple_accepted, simple_complete = self._receive_simple_bw_part(part)
+        if simple_accepted:
+            self.last_part_accepted = True
+            self.accepted_parts += 1
+            return True, simple_complete
+
         accepted = self._decoder.receive_part(part)
         self.last_part_accepted = accepted
         if accepted:
@@ -56,9 +68,14 @@ class URDecoder:
         return accepted, self._decoder.is_complete()
 
     def is_complete(self) -> bool:
-        return self._decoder.is_complete()
+        return self._simple_bw_payload is not None or self._decoder.is_complete()
 
     def progress(self) -> float:
+        if self._simple_bw_payload is not None:
+            return 1.0
+        if self._simple_bw_parts:
+            first = next(iter(self._simple_bw_parts.values()))
+            return len(first["chunks"]) / max(1, first["total"])
         try:
             return self._decoder.estimated_percent_complete()
         except AttributeError:
@@ -66,6 +83,12 @@ class URDecoder:
 
     def result(self):
         """Return the decoded sign request (Eth or Xlm). Call only when complete."""
+        if self._simple_bw_payload is not None and self._simple_bw_type is not None:
+            return _parse_bw_stellar_sign_request_payload(
+                self._simple_bw_type,
+                self._simple_bw_payload,
+            )
+
         ur = self._decoder.result_ur()
         if ur.type == "eth-sign-request":
             return _parse_eth_sign_request(ur.cbor)
@@ -75,9 +98,65 @@ class URDecoder:
 
     def reset(self):
         self._decoder = _URDecoder()
+        self._simple_bw_payload = None
+        self._simple_bw_type = None
+        self._simple_bw_parts = {}
         self.accepted_parts = 0
         self.rejected_parts = 0
         self.last_part_accepted = False
+
+    def _receive_simple_bw_part(self, part: str) -> tuple[bool, bool]:
+        if not part.startswith("ur:bw-stellar-"):
+            return False, False
+
+        fragments = part.split("/")
+        if len(fragments) < 2:
+            return False, False
+
+        prefix = fragments[0]
+        ur_type = prefix.removeprefix("ur:")
+        if ur_type != "bw-stellar-sign-request":
+            return False, False
+
+        if len(fragments) == 2:
+            self._simple_bw_type = ur_type
+            self._simple_bw_payload = fragments[1]
+            self._simple_bw_parts = {}
+            return True, True
+
+        if len(fragments) == 3:
+            index_total = fragments[1]
+            chunk = fragments[2]
+            match = re.match(r"^(\d+)-(\d+)$", index_total)
+            if not match:
+                return False, False
+            index = int(match.group(1))
+            total = int(match.group(2))
+            if index <= 0 or total <= 0 or index > total:
+                return False, False
+
+            current = self._simple_bw_parts.setdefault(
+                prefix,
+                {"total": total, "chunks": {}},
+            )
+            current["total"] = total
+            current["chunks"][index] = chunk
+            if len(current["chunks"]) < total:
+                return True, False
+
+            assembled = []
+            for i in range(1, total + 1):
+                piece = current["chunks"].get(i)
+                if piece is None:
+                    return True, False
+                assembled.append(piece)
+
+            self._simple_bw_type = ur_type
+            self._simple_bw_payload = "".join(assembled)
+            self._simple_bw_parts = {}
+            return True, True
+
+        return False, False
 
 
 def _parse_eth_sign_request(cbor_bytes: bytes) -> EthSignRequest:
@@ -108,6 +187,18 @@ def _parse_eth_sign_request(cbor_bytes: bytes) -> EthSignRequest:
 
 def _parse_bw_stellar_sign_request(cbor_bytes: bytes) -> XlmSignRequest:
     data = cbor2.loads(cbor_bytes)
+    return _parse_bw_stellar_sign_request_data(data)
+
+
+def _parse_bw_stellar_sign_request_payload(ur_type: str, encoded_payload: str) -> XlmSignRequest:
+    if ur_type != "bw-stellar-sign-request":
+        raise ValueError(f"unexpected simple UR type: {ur_type!r}")
+    json_bytes = _decode_base64url(encoded_payload)
+    data = json.loads(json_bytes.decode("utf-8"))
+    return _parse_bw_stellar_sign_request_data(data)
+
+
+def _parse_bw_stellar_sign_request_data(data: dict) -> XlmSignRequest:
     kind = data.get("kind")
     if kind != "tx":
         raise ValueError(f"unsupported bw-stellar-sign-request kind: {kind!r}")
@@ -133,3 +224,8 @@ def _parse_bw_stellar_sign_request(cbor_bytes: bytes) -> XlmSignRequest:
         sep7_uri=sep7_uri,
         kind=kind,
     )
+
+
+def _decode_base64url(data: str) -> bytes:
+    padding = "=" * ((4 - (len(data) % 4)) % 4)
+    return base64.urlsafe_b64decode(data + padding)

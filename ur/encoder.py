@@ -3,6 +3,9 @@ Encode EthSignature and CryptoHDKey into UR fountain-code strings for QR display
 
 Each call to next_part() returns one string to render as a QR code frame.
 """
+import base64
+import json
+
 import cbor2
 from _bc_ur.ur import UR
 from _bc_ur.ur_encoder import UREncoder as _UREncoder
@@ -35,21 +38,20 @@ def encode_xlm_signature(sig: XlmSignature, max_fragment_len: int = MAX_FRAGMENT
     """
     Encode XlmSignature → list of UR fragment strings for animated QR.
     """
-    cbor_bytes = cbor2.dumps({
+    payload = {
         "request_id": sig.request_id,
         "signer_pubkey": sig.signer_pubkey,
         "signed_xdr": sig.signed_xdr,
         "signatures": sig.signatures,
-    })
-    ur = UR("bw-stellar-signature", cbor_bytes)
-    return _encode_to_parts(ur, max_fragment_len)
+    }
+    return _encode_simple_json_ur("bw-stellar-signature", payload, max_fragment_len)
 
 
 def encode_bw_stellar_accounts(
     payload: BwStellarAccountsPayload,
     max_fragment_len: int = MAX_FRAGMENT_LEN,
 ) -> list[str]:
-    cbor_bytes = cbor2.dumps({
+    payload_dict = {
         "device": {
             "id": payload.device.id,
             "label": payload.device.label,
@@ -63,9 +65,8 @@ def encode_bw_stellar_accounts(
             }
             for account in payload.accounts
         ],
-    })
-    ur = UR("bw-stellar-accounts", cbor_bytes)
-    return _encode_to_parts(ur, max_fragment_len)
+    }
+    return _encode_simple_json_ur("bw-stellar-accounts", payload_dict, max_fragment_len)
 
 
 def _build_keypath(path_str: str, source_fingerprint: bytes | None = None) -> cbor2.CBORTag:
@@ -152,3 +153,18 @@ def _encode_to_parts(ur: UR, max_fragment_len: int) -> list[str]:
 
     count = encoder.expected_part_count()
     return [encoder.next_part() for _ in range(count)]
+
+
+def _encode_simple_json_ur(ur_type: str, payload: dict, max_fragment_len: int) -> list[str]:
+    json_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    encoded_payload = base64.urlsafe_b64encode(json_bytes).decode("ascii").rstrip("=")
+    prefix = f"ur:{ur_type}"
+    if len(encoded_payload) <= max_fragment_len:
+        return [f"{prefix}/{encoded_payload}"]
+
+    total = (len(encoded_payload) + max_fragment_len - 1) // max_fragment_len
+    parts = []
+    for i in range(total):
+        chunk = encoded_payload[i * max_fragment_len: (i + 1) * max_fragment_len]
+        parts.append(f"{prefix}/{i + 1}-{total}/{chunk}")
+    return parts
