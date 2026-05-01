@@ -26,14 +26,19 @@ def sign(keypair, request: XlmSignRequest) -> XlmSignResult:
     Raises:
         ValueError if the SEP-7 URI is malformed or doesn't carry a tx XDR.
     """
-    sep = sep7.parse(request.sep7_uri)
-    if sep.xdr is None:
-        raise ValueError("SEP-7 URI does not carry a transaction XDR")
+    tx_xdr = request.tx_xdr
+    if tx_xdr is None:
+        if not request.sep7_uri:
+            raise ValueError("Stellar signing request missing tx_xdr and sep7_uri")
+        sep = sep7.parse(request.sep7_uri)
+        if sep.xdr is None:
+            raise ValueError("SEP-7 URI does not carry a transaction XDR")
 
-    if sep.network_passphrase != request.network_passphrase:
-        raise ValueError("network passphrase mismatch for Stellar signing request")
+        if sep.network_passphrase != request.network_passphrase:
+            raise ValueError("network passphrase mismatch for Stellar signing request")
+        tx_xdr = sep.xdr
 
-    envelope = TransactionEnvelope.from_xdr(sep.xdr, sep.network_passphrase)
+    envelope = TransactionEnvelope.from_xdr(tx_xdr, request.network_passphrase)
     envelope.sign(keypair)
     signatures = [bytes(sig.signature) for sig in envelope.signatures]
     return XlmSignResult(

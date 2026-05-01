@@ -96,3 +96,18 @@ class TestXlmSign:
         req.network_passphrase = Network.PUBLIC_NETWORK_PASSPHRASE
         with pytest.raises(ValueError, match="network passphrase mismatch"):
             xlm_signer.sign(kp, req)
+
+    def test_sign_accepts_tx_xdr_without_sep7(self):
+        kp = derive.derive_xlm_keypair(_TEST_MNEMONIC)
+        xdr = _build_tx_xdr(kp.public_key, Network.TESTNET_NETWORK_PASSPHRASE)
+        req = XlmSignRequest(
+            request_id="req-xdr-only",
+            signer_pubkey=_TEST_MNEMONIC_XLM_PUBLIC,
+            network_passphrase=Network.TESTNET_NETWORK_PASSPHRASE,
+            tx_xdr=xdr,
+            sep7_uri=None,
+            kind="tx",
+        )
+        signed = xlm_signer.sign(kp, req)
+        assert isinstance(signed.signed_xdr, str)
+        assert len(signed.signatures) == 1

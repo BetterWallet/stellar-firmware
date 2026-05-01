@@ -207,6 +207,7 @@ def _parse_bw_stellar_sign_request_data(data: dict) -> XlmSignRequest:
     signer_pubkey = data.get("signer_pubkey")
     network_passphrase = data.get("network_passphrase")
     sep7_uri = data.get("sep7_uri")
+    tx_xdr = data.get("tx_xdr")
 
     if not isinstance(req_id, str) or not req_id:
         raise ValueError("bw-stellar-sign-request missing req_id")
@@ -214,14 +215,17 @@ def _parse_bw_stellar_sign_request_data(data: dict) -> XlmSignRequest:
         raise ValueError("bw-stellar-sign-request missing signer_pubkey")
     if not isinstance(network_passphrase, str) or not network_passphrase:
         raise ValueError("bw-stellar-sign-request missing network_passphrase")
-    if not isinstance(sep7_uri, str) or not sep7_uri:
-        raise ValueError("bw-stellar-sign-request missing sep7_uri")
+    if (not isinstance(sep7_uri, str) or not sep7_uri) and (
+        not isinstance(tx_xdr, str) or not tx_xdr
+    ):
+        raise ValueError("bw-stellar-sign-request missing sep7_uri or tx_xdr")
 
     return XlmSignRequest(
         request_id=req_id,
         signer_pubkey=signer_pubkey,
         network_passphrase=network_passphrase,
-        sep7_uri=sep7_uri,
+        sep7_uri=sep7_uri if isinstance(sep7_uri, str) and sep7_uri else None,
+        tx_xdr=tx_xdr if isinstance(tx_xdr, str) and tx_xdr else None,
         kind=kind,
     )
 

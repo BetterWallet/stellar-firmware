@@ -259,12 +259,17 @@ async def _handle_parsed(wallet: Wallet, sign_request, render_queue: asyncio.Que
             raise ValueError("missing signer public key")
         if wallet.find_xlm_account(sign_request.signer_pubkey) is None:
             raise ValueError("requested signer does not match any local Stellar account")
-        sep = sep7.parse(sign_request.sep7_uri)
-        if sep.network_passphrase != sign_request.network_passphrase:
-            raise ValueError("network passphrase mismatch")
-        if sep.pubkey and sep.pubkey != sign_request.signer_pubkey:
-            raise ValueError("SEP-7 pubkey does not match signer public key")
-        fields = xlm_parser.parse(sep.xdr, sep.network_passphrase)
+        if sign_request.tx_xdr:
+            fields = xlm_parser.parse(sign_request.tx_xdr, sign_request.network_passphrase)
+        else:
+            if not sign_request.sep7_uri:
+                raise ValueError("missing SEP-7 URI for Stellar signing request")
+            sep = sep7.parse(sign_request.sep7_uri)
+            if sep.network_passphrase != sign_request.network_passphrase:
+                raise ValueError("network passphrase mismatch")
+            if sep.pubkey and sep.pubkey != sign_request.signer_pubkey:
+                raise ValueError("SEP-7 pubkey does not match signer public key")
+            fields = xlm_parser.parse(sep.xdr, sep.network_passphrase)
     else:
         raise ValueError(f"unsupported sign request type: {type(sign_request).__name__}")
 

@@ -37,7 +37,8 @@ class XlmSignRequest:
     request_id: str
     signer_pubkey: str
     network_passphrase: str
-    sep7_uri: str
+    sep7_uri: str | None = None
+    tx_xdr: str | None = None
     kind: str = "tx"
 
 

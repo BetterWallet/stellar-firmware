@@ -161,6 +161,22 @@ class TestDecoder:
         assert "Network" in req.network_passphrase
         assert req.sep7_uri.startswith("web+stellar:tx")
 
+    def test_parse_bw_stellar_sign_request_with_tx_xdr_only(self):
+        from ur.decoder import _parse_bw_stellar_sign_request_data
+
+        req = _parse_bw_stellar_sign_request_data(
+            {
+                "kind": "tx",
+                "req_id": "req-xdr-only",
+                "signer_pubkey": "GB3JDWCQJCWMJ3IILWIGDTQJJC5567PGVEVXSCVPEQOTDN64VJBDQBYX",
+                "network_passphrase": "Test SDF Network ; September 2015",
+                "tx_xdr": "AAAA",
+            }
+        )
+        assert req.request_id == "req-xdr-only"
+        assert req.tx_xdr == "AAAA"
+        assert req.sep7_uri is None
+
     def test_ur_decoder_accepts_simple_bw_stellar_payload(self):
         from ur.decoder import URDecoder
 
