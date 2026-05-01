@@ -12,11 +12,9 @@ from pathlib import Path
 import uuid
 
 from config import (
-    BIP44_ACCOUNT_PATH,
     DEVICE_LABEL,
     DEVICE_METADATA_PATH,
     KEYSTORE_PATH,
-    XPUB_PATH,
 )
 from eip712 import display as eip712_display
 from eip712 import parser as eip712_parser
@@ -27,7 +25,6 @@ from ur.types import (
     BwStellarAccount,
     BwStellarAccountsPayload,
     BwStellarDevice,
-    CryptoHDKey,
     EthSignature,
     EthSignRequest,
     XlmSignRequest,
@@ -130,7 +127,7 @@ async def run(
 async def _handle_setup(event_queue: asyncio.Queue, render_queue: asyncio.Queue) -> State:
     """First-boot: generate mnemonic, show to user, create keystore, show import QR."""
     from wallet import keygen
-    from wallet.derive import derive_eth_account, derive_eth_xpub, derive_xlm_keypair
+    from wallet.derive import derive_eth_account, derive_xlm_keypair
 
     mnemonic = keygen.generate()
     words = mnemonic.split()
@@ -150,27 +147,17 @@ async def _handle_setup(event_queue: asyncio.Queue, render_queue: asyncio.Queue)
         del mnemonic, words
         return State.SETUP   # restart setup with a new mnemonic
 
-    # Derive eth account + xpub, derive xlm keypair (for logging only).
+    # Derive eth account and xlm keypair for logging/setup UX.
     # The mnemonic is what's stored — both chain keypairs are re-derivable from it.
     temp_eth = derive_eth_account(mnemonic)
-    eth_xpub = derive_eth_xpub(mnemonic)
     temp_xlm = derive_xlm_keypair(mnemonic)
     keystore.save(KEYSTORE_PATH, mnemonic, pin)
 
-    # Save eth xpub (public data) for showing the import QR later
-    origin_path = BIP44_ACCOUNT_PATH.lstrip("m/")
-    hdkey = CryptoHDKey(
-        key_data=eth_xpub["key_data"],
-        chain_code=eth_xpub["chain_code"],
-        origin_path=origin_path,
-        address=temp_eth.address,
-        master_fingerprint=eth_xpub["master_fingerprint"],
-        parent_fingerprint=eth_xpub["parent_fingerprint"],
+    # Show Better Wallet Stellar account export QR immediately after setup.
+    setup_wallet = Wallet(mnemonic)
+    qr_frames = ur_encoder.encode_bw_stellar_accounts(
+        _build_stellar_accounts_payload(setup_wallet),
     )
-    _save_xpub(hdkey)
-
-    # Show the import QR for MetaMask (crypto-hdkey format per EIP-4527)
-    qr_frames = ur_encoder.encode_crypto_hdkey(hdkey)
     await render_queue.put(RenderEvent.result(qr_frames))
     log.info(
         "setup complete — eth=%s  xlm=%s",
@@ -339,22 +326,9 @@ async def _handle_show_import(
     render_queue: asyncio.Queue,
 ) -> State:
     """Show the Better Wallet Stellar account export QR."""
-    device_info = _load_or_create_device_metadata()
-    payload = BwStellarAccountsPayload(
-        device=BwStellarDevice(
-            id=device_info["id"],
-            label=device_info["label"],
-        ),
-        accounts=[
-            BwStellarAccount(
-                publicKey=account["public_key"],
-                bipPath=account["bip_path"],
-                label=f"Account #{account['index'] + 1}",
-            )
-            for account in wallet.xlm_accounts
-        ],
+    qr_frames = ur_encoder.encode_bw_stellar_accounts(
+        _build_stellar_accounts_payload(wallet),
     )
-    qr_frames = ur_encoder.encode_bw_stellar_accounts(payload)
     await render_queue.put(RenderEvent.result(qr_frames))
     await event_queue.get()
     return State.IDLE
@@ -391,34 +365,21 @@ async def _collect_pin(event_queue: asyncio.Queue, render_queue: asyncio.Queue) 
             raise _PINRejected()
 
 
-def _save_xpub(hdkey: CryptoHDKey) -> None:
-    """Save public key data (non-secret) so the import QR can be re-shown later."""
-    data = {
-        "key_data":            hdkey.key_data.hex(),
-        "chain_code":          hdkey.chain_code.hex(),
-        "origin_path":         hdkey.origin_path,
-        "address":             hdkey.address,
-        "master_fingerprint":  hdkey.master_fingerprint.hex(),
-        "parent_fingerprint":  hdkey.parent_fingerprint.hex(),
-    }
-    dest = Path(XPUB_PATH)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(json.dumps(data))
-
-
-def _load_xpub() -> CryptoHDKey | None:
-    """Load saved xpub data, or return None if not found."""
-    p = Path(XPUB_PATH)
-    if not p.exists():
-        return None
-    data = json.loads(p.read_text())
-    return CryptoHDKey(
-        key_data=bytes.fromhex(data["key_data"]),
-        chain_code=bytes.fromhex(data["chain_code"]),
-        origin_path=data["origin_path"],
-        address=data["address"],
-        master_fingerprint=bytes.fromhex(data.get("master_fingerprint", "00000000")),
-        parent_fingerprint=bytes.fromhex(data.get("parent_fingerprint", "00000000")),
+def _build_stellar_accounts_payload(wallet: Wallet) -> BwStellarAccountsPayload:
+    device_info = _load_or_create_device_metadata()
+    return BwStellarAccountsPayload(
+        device=BwStellarDevice(
+            id=device_info["id"],
+            label=device_info["label"],
+        ),
+        accounts=[
+            BwStellarAccount(
+                publicKey=account["public_key"],
+                bipPath=account["bip_path"],
+                label=f"Account #{account['index'] + 1}",
+            )
+            for account in wallet.xlm_accounts
+        ],
     )
 
 

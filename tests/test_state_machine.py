@@ -205,6 +205,23 @@ class TestHandlers:
         assert metadata["id"]
         assert metadata["label"]
 
+    @pytest.mark.asyncio
+    async def test_handle_show_import_emits_bw_stellar_accounts_qr(self):
+        from state.machine import _handle_show_import
+        from wallet import Wallet
+
+        wallet = Wallet("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
+        event_queue = asyncio.Queue()
+        render_queue = asyncio.Queue()
+        await event_queue.put(ButtonEvent.CONFIRM)
+
+        next_state = await _handle_show_import(wallet, event_queue, render_queue)
+        assert next_state == State.IDLE
+
+        renders = await _drain_renders(render_queue)
+        result = next(r for r in renders if r.screen == "result")
+        assert result.data["qr_frames"][0].startswith("ur:bw-stellar-accounts")
+
 
 # ---------------------------------------------------------------------------
 # Integration: full sign flow (mocked wallet)
