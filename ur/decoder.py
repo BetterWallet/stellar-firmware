@@ -15,6 +15,7 @@ import re
 import cbor2
 from _bc_ur.ur_decoder import URDecoder as _URDecoder
 
+from stellar import sep7
 from ur.types import EthSignRequest, XlmSignRequest
 
 # CBOR tag for crypto-keypath (EIP-4527 / bc-ur spec)
@@ -40,6 +41,7 @@ class URDecoder:
 
     def __init__(self):
         self._decoder = _URDecoder()
+        self._sep7_uri: str | None = None
         self._simple_bw_payload: str | None = None
         self._simple_bw_type: str | None = None
         self._simple_bw_parts: dict[str, dict] = {}
@@ -53,6 +55,12 @@ class URDecoder:
 
     def receive_part_info(self, part: str) -> tuple[bool, bool]:
         """Feed one QR payload (UR fragment). Returns (accepted, complete)."""
+        if sep7.is_sep7(part):
+            self._sep7_uri = part
+            self.last_part_accepted = True
+            self.accepted_parts += 1
+            return True, True
+
         simple_accepted, simple_complete = self._receive_simple_bw_part(part)
         if simple_accepted:
             self.last_part_accepted = True
@@ -68,9 +76,15 @@ class URDecoder:
         return accepted, self._decoder.is_complete()
 
     def is_complete(self) -> bool:
-        return self._simple_bw_payload is not None or self._decoder.is_complete()
+        return (
+            self._sep7_uri is not None
+            or self._simple_bw_payload is not None
+            or self._decoder.is_complete()
+        )
 
     def progress(self) -> float:
+        if self._sep7_uri is not None:
+            return 1.0
         if self._simple_bw_payload is not None:
             return 1.0
         if self._simple_bw_parts:
@@ -83,6 +97,9 @@ class URDecoder:
 
     def result(self):
         """Return the decoded sign request (Eth or Xlm). Call only when complete."""
+        if self._sep7_uri is not None:
+            return _parse_sep7_sign_request_uri(self._sep7_uri)
+
         if self._simple_bw_payload is not None and self._simple_bw_type is not None:
             return _parse_bw_stellar_sign_request_payload(
                 self._simple_bw_type,
@@ -98,6 +115,7 @@ class URDecoder:
 
     def reset(self):
         self._decoder = _URDecoder()
+        self._sep7_uri = None
         self._simple_bw_payload = None
         self._simple_bw_type = None
         self._simple_bw_parts = {}
@@ -233,3 +251,24 @@ def _parse_bw_stellar_sign_request_data(data: dict) -> XlmSignRequest:
 def _decode_base64url(data: str) -> bytes:
     padding = "=" * ((4 - (len(data) % 4)) % 4)
     return base64.urlsafe_b64decode(data + padding)
+
+
+def _parse_sep7_sign_request_uri(uri: str) -> XlmSignRequest:
+    parsed = sep7.parse(uri)
+    if parsed.xdr is None:
+        raise ValueError("SEP-7 URI does not carry a transaction XDR")
+    if not parsed.pubkey:
+        raise ValueError("SEP-7 URI missing required pubkey parameter")
+
+    req_id = parsed.req_id
+    if not req_id:
+        req_id = "sep7-" + base64.urlsafe_b64encode(parsed.xdr.encode("utf-8"))[:12].decode("ascii")
+
+    return XlmSignRequest(
+        request_id=req_id,
+        signer_pubkey=parsed.pubkey,
+        network_passphrase=parsed.network_passphrase,
+        sep7_uri=uri,
+        tx_xdr=parsed.xdr,
+        kind="tx",
+    )

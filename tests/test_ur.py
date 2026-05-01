@@ -215,6 +215,25 @@ class TestDecoder:
         req = decoder.result()
         assert req.request_id == payload["req_id"]
 
+    def test_ur_decoder_accepts_bare_sep7_tx_uri(self):
+        from ur.decoder import URDecoder
+
+        uri = (
+            "web+stellar:tx"
+            "?xdr=AAAA"
+            "&network_passphrase=Test%20SDF%20Network%20%3B%20September%202015"
+            "&pubkey=GB3JDWCQJCWMJ3IILWIGDTQJJC5567PGVEVXSCVPEQOTDN64VJBDQBYX"
+            "&req_id=req-sep7-1"
+        )
+        decoder = URDecoder()
+        accepted, complete = decoder.receive_part_info(uri)
+        assert accepted is True
+        assert complete is True
+        req = decoder.result()
+        assert req.request_id == "req-sep7-1"
+        assert req.signer_pubkey.startswith("G")
+        assert req.tx_xdr == "AAAA"
+
 
 # ---------------------------------------------------------------------------
 # encoder
