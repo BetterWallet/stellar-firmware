@@ -21,6 +21,7 @@ from config import (
     SHOW_TOUCH_CURSOR,
     TOUCH_INPUT_BACKEND,
 )
+from display.theme import BG
 from state.states import ButtonEvent, PINEvent
 
 log = logging.getLogger(__name__)
@@ -201,6 +202,8 @@ async def display_loop(render_queue: asyncio.Queue, event_queue: asyncio.Queue, 
         "preview_seq": -1,
         "preview_surface": None,
         "preview_pos": (0, 0),
+        "anim_tick": 0,
+        "result_chain": "XLM",
     }
 
     log.info("display_loop started — framebuffer=%s (RGB565 direct write)", DISPLAY_FB)
@@ -215,6 +218,7 @@ async def display_loop(render_queue: asyncio.Queue, event_queue: asyncio.Queue, 
                     if ev.screen == "result":
                         state["qr_frames"] = ev.data.get("qr_frames", [])
                         state["qr_index"]  = 0
+                        state["result_chain"] = ev.data.get("chain", "XLM")
                     if ev.screen in ("pin", "locked"):
                         state["pin_digits"] = []
             except asyncio.QueueEmpty:
@@ -225,7 +229,7 @@ async def display_loop(render_queue: asyncio.Queue, event_queue: asyncio.Queue, 
                 await asyncio.sleep(0.016)
                 continue
 
-            screen.fill((0, 0, 0))
+            screen.fill(BG)
             s = ev.screen
 
             if s in ("pin", "wrong_pin"):
@@ -254,11 +258,23 @@ async def display_loop(render_queue: asyncio.Queue, event_queue: asyncio.Queue, 
             elif s == "confirm":
                 screens.confirm.render(screen, ev.data.get("fields", []))
             elif s == "signing":
-                render_text_centered(screen, "Signing...", (DISPLAY_WIDTH // 2, DISPLAY_HEIGHT // 2))
+                screens.signing.render(
+                    screen,
+                    chain=ev.data.get("chain", "XLM"),
+                    tick=state["anim_tick"],
+                    algorithm=ev.data.get("algorithm"),
+                )
             elif s == "result":
                 frames = state["qr_frames"]
                 if frames:
-                    screens.result.render(screen, frames[state["qr_index"] % len(frames)])
+                    idx = state["qr_index"] % len(frames)
+                    screens.result.render(
+                        screen,
+                        frames[idx],
+                        part_index=idx + 1,
+                        total_parts=len(frames),
+                        chain=state["result_chain"],
+                    )
             elif s == "error":
                 render_error(screen, ev.data.get("message", "Unknown error"))
             else:
@@ -279,6 +295,7 @@ async def display_loop(render_queue: asyncio.Queue, event_queue: asyncio.Queue, 
                 await asyncio.sleep(1.0 / QR_DISPLAY_FPS)
             else:
                 await asyncio.sleep(1.0 / 30)
+            state["anim_tick"] += 1
 
     async def _touch_loop_x11() -> bool:
         try:

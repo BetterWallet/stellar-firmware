@@ -153,7 +153,7 @@ async def _handle_setup(event_queue: asyncio.Queue, render_queue: asyncio.Queue)
     qr_frames = ur_encoder.encode_bw_stellar_accounts(
         _build_stellar_accounts_payload(setup_wallet),
     )
-    await render_queue.put(RenderEvent.result(qr_frames))
+    await render_queue.put(RenderEvent.result(qr_frames, chain="XLM"))
     log.info("setup complete — xlm=%s", temp_xlm.public_key)
 
     # Wait for user to confirm they scanned it
@@ -280,7 +280,7 @@ async def _handle_signing(
     sign_request,
     render_queue: asyncio.Queue,
 ) -> tuple[State, ur_decoder_mod.URDecoder, object]:
-    await render_queue.put(RenderEvent.signing())
+    await render_queue.put(RenderEvent.signing(chain="XLM", algorithm="Ed25519"))
 
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, wallet.sign, sign_request)
@@ -301,7 +301,7 @@ async def _handle_signing(
     else:
         raise ValueError(f"unsupported sign request type: {type(sign_request).__name__}")
 
-    await render_queue.put(RenderEvent.result(qr_frames))
+    await render_queue.put(RenderEvent.result(qr_frames, chain="XLM"))
 
     new_decoder = ur_decoder_mod.URDecoder()
     return State.DISPLAY_RESULT, new_decoder, None
@@ -316,7 +316,7 @@ async def _handle_show_import(
     qr_frames = ur_encoder.encode_bw_stellar_accounts(
         _build_stellar_accounts_payload(wallet),
     )
-    await render_queue.put(RenderEvent.result(qr_frames))
+    await render_queue.put(RenderEvent.result(qr_frames, chain="XLM"))
     await event_queue.get()
     return State.IDLE
 

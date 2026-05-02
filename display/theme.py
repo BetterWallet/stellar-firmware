@@ -1,0 +1,41 @@
+"""Shared UI tokens for Better Wallet Pi display screens."""
+
+# Display shell geometry
+HEADER_H = 32
+FOOTER_H = 44
+CONTENT_TOP = HEADER_H
+CONTENT_BOTTOM = 480 - FOOTER_H
+CONTENT_H = CONTENT_BOTTOM - CONTENT_TOP
+
+# Background stack
+BG = (6, 8, 14)
+BG_SURFACE = (14, 17, 26)
+BG_RAISED = (22, 27, 42)
+BORDER_DIM = (36, 42, 62)
+BORDER = (56, 66, 100)
+
+# Text
+TEXT = (235, 238, 245)
+TEXT_SEC = (118, 130, 158)
+TEXT_MUTED = (56, 64, 88)
+
+# Accents
+CYAN = (0, 208, 188)
+GREEN = (32, 196, 108)
+RED = (218, 56, 64)
+AMBER = (240, 168, 32)
+PURPLE = (148, 82, 238)
+
+# Semantic aliases
+CONFIRM = GREEN
+REJECT = RED
+STELLAR = CYAN
+ETHEREUM = PURPLE
+
+# Type scale
+TYPE_XS = 11
+TYPE_SM = 13
+TYPE_MD = 15
+TYPE_LG = 17
+TYPE_XL = 20
+TYPE_HERO = 24

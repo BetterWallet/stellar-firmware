@@ -57,12 +57,12 @@ class RenderEvent:
         return RenderEvent(screen="confirm", data={"fields": fields})
 
     @staticmethod
-    def signing() -> "RenderEvent":
-        return RenderEvent(screen="signing")
+    def signing(chain: str = "XLM", algorithm: str | None = None) -> "RenderEvent":
+        return RenderEvent(screen="signing", data={"chain": chain, "algorithm": algorithm})
 
     @staticmethod
-    def result(qr_frames: list) -> "RenderEvent":
-        return RenderEvent(screen="result", data={"qr_frames": qr_frames})
+    def result(qr_frames: list, chain: str = "XLM") -> "RenderEvent":
+        return RenderEvent(screen="result", data={"qr_frames": qr_frames, "chain": chain})
 
     @staticmethod
     def error(message: str) -> "RenderEvent":

@@ -1,1 +1,1 @@
-from display.screens import confirm, idle, pin, result, setup
+from display.screens import confirm, idle, pin, result, setup, signing
