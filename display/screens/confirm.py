@@ -1,5 +1,5 @@
 """
-Transaction / EIP-712 confirmation screen.
+Transaction confirmation screen.
 
 Renders a scrollable list of DisplayField rows with confirm/reject labels at
 the bottom. Physical GPIO buttons handle confirmation — no touch needed here.

@@ -33,14 +33,11 @@ GPIO_REJECT_PIN = 16
 GPIO_LED_GREEN = 20
 GPIO_LED_RED = 26
 KEYSTORE_PATH = os.path.expanduser("~/.cold-wallet/keystore.json")
-XPUB_PATH     = os.path.expanduser("~/.cold-wallet/xpub.json")
 DEVICE_METADATA_PATH = os.path.expanduser("~/.cold-wallet/device.json")
 DEVICE_LABEL = "Better Wallet"
 PIN_SCRYPT_N = 2**15      # 2**18 exceeds OpenSSL memory limit on Pi 4; never below 2**14
 PIN_SCRYPT_R = 8
 PIN_SCRYPT_P = 1
-BIP44_PATH = "m/44'/60'/0'/0/0"
-BIP44_ACCOUNT_PATH = "m/44'/60'/0'"    # account-level path for xpub export
 
 # Stellar (XLM): Ed25519 / SLIP-10. Hardened-only by spec.
 # stellar-sdk derives via Keypair.from_mnemonic_phrase(mnemonic, index=0)

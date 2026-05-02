@@ -5,8 +5,7 @@ then decodes the CBOR into a chain-specific sign request.
 Uses foundation-ur (bc-ur) for the UR layer and cbor2 for CBOR parsing.
 
 Two transports are supported:
-  - Animated UR fragments  → eth-sign-request (Ethereum / EIP-4527)
-                          → bw-stellar-sign-request (Stellar)
+  - Animated UR fragments  → bw-stellar-sign-request (Stellar)
 """
 import base64
 import json
@@ -16,23 +15,7 @@ import cbor2
 from _bc_ur.ur_decoder import URDecoder as _URDecoder
 
 from stellar import sep7
-from ur.types import EthSignRequest, XlmSignRequest
-
-# CBOR tag for crypto-keypath (EIP-4527 / bc-ur spec)
-_KEYPATH_TAG = 304
-
-
-def _decode_keypath(value) -> str:
-    """Decode a crypto-keypath CBOR structure into a string like "44'/60'/0'/0/0"."""
-    if isinstance(value, cbor2.CBORTag):
-        value = value.value
-    components = value.get(1, [])
-    parts = []
-    for comp in components:
-        if isinstance(comp, list) and len(comp) == 2:
-            index, hardened = comp
-            parts.append(f"{index}'" if hardened else str(index))
-    return "/".join(parts)
+from ur.types import XlmSignRequest
 
 
 class URDecoder:
@@ -96,7 +79,7 @@ class URDecoder:
             return 1.0 if self._decoder.is_complete() else 0.0
 
     def result(self):
-        """Return the decoded sign request (Eth or Xlm). Call only when complete."""
+        """Return the decoded Stellar sign request. Call only when complete."""
         if self._sep7_uri is not None:
             return _parse_sep7_sign_request_uri(self._sep7_uri)
 
@@ -107,8 +90,6 @@ class URDecoder:
             )
 
         ur = self._decoder.result_ur()
-        if ur.type == "eth-sign-request":
-            return _parse_eth_sign_request(ur.cbor)
         if ur.type == "bw-stellar-sign-request":
             return _parse_bw_stellar_sign_request(ur.cbor)
         raise ValueError(f"unexpected UR type: {ur.type!r}")
@@ -175,32 +156,6 @@ class URDecoder:
             return True, True
 
         return False, False
-
-
-def _parse_eth_sign_request(cbor_bytes: bytes) -> EthSignRequest:
-    data = cbor2.loads(cbor_bytes)
-
-    request_id: bytes = data[1]
-    sign_data: bytes  = data[2]
-    data_type: int    = data[3]
-    chain_id: int     = data.get(4, 1)
-
-    raw_path = data[5]
-    derivation_path = _decode_keypath(raw_path)
-
-    address: str | None = None
-    if 6 in data:
-        addr_bytes: bytes = data[6]
-        address = "0x" + addr_bytes.hex()
-
-    return EthSignRequest(
-        request_id=request_id,
-        sign_data=sign_data,
-        data_type=data_type,
-        chain_id=chain_id,
-        derivation_path=derivation_path,
-        address=address,
-    )
 
 
 def _parse_bw_stellar_sign_request(cbor_bytes: bytes) -> XlmSignRequest:

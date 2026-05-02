@@ -6,6 +6,8 @@ Walks each operation and emits rows. Stroops are converted to XLM
 (divide by 10⁷) for the user-facing amount; raw stroops are shown for
 the network fee since users care about exact fee values.
 """
+from dataclasses import dataclass
+
 from stellar_sdk import TransactionEnvelope
 from stellar_sdk.operation import (
     Payment,
@@ -16,8 +18,11 @@ from stellar_sdk.operation import (
     ManageData,
     SetOptions,
 )
-
-from eip712.display import DisplayField
+@dataclass
+class DisplayField:
+    label: str
+    value: str
+    indent: int = 0
 
 
 _STROOPS_PER_XLM = 10**7

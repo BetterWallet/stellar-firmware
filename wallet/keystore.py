@@ -3,8 +3,7 @@ Mnemonic-at-rest keystore with PIN-derived encryption.
 
 The keystore stores the BIP-39 mnemonic phrase, encrypted with a key derived
 from the user's PIN via scrypt + AES-GCM. The mnemonic is the single source
-of truth — both the Ethereum secp256k1 keypair and the Stellar Ed25519
-keypair are re-derived from it on unlock.
+of truth — Stellar Ed25519 keypairs are re-derived from it on unlock.
 
 Flow:
   PIN → scrypt → 32-byte key
@@ -24,7 +23,7 @@ from Crypto.Cipher import AES
 
 from config import PIN_SCRYPT_N, PIN_SCRYPT_P, PIN_SCRYPT_R
 
-_KEYSTORE_VERSION = 2  # bump from v1 (eth_account keystore of eth privkey)
+_KEYSTORE_VERSION = 2  # bump from legacy private-key-only keystore format
 
 
 def _derive_key(pin: str, salt: bytes) -> bytes:

@@ -16,7 +16,7 @@ class TestSep7:
 
     def test_is_sep7_false(self):
         assert sep7.is_sep7("https://example.com") is False
-        assert sep7.is_sep7("web+ethereum:0x...") is False
+        assert sep7.is_sep7("web+bitcoin:foo") is False
 
     def test_parse_minimal_tx(self):
         uri = f"web+stellar:tx?xdr={_SAMPLE_XDR}"

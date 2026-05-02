@@ -4,7 +4,6 @@ Tests for state/machine.py — inject synthetic events, assert state transitions
 All queues are mocked with asyncio.Queue. No Pi hardware required.
 """
 import asyncio
-import json
 import pytest
 from urllib.parse import quote
 
@@ -22,19 +21,6 @@ async def _drain_renders(q: asyncio.Queue) -> list[RenderEvent]:
     while not q.empty():
         renders.append(q.get_nowait())
     return renders
-
-
-def _make_sign_request(data_type: int = 3, sign_data: bytes = b"test"):
-    """Build a minimal EthSignRequest for testing."""
-    from ur.types import EthSignRequest
-    return EthSignRequest(
-        request_id=b"\xab" * 16,
-        sign_data=sign_data,
-        data_type=data_type,
-        chain_id=1,
-        derivation_path="44'/60'/0'/0/0",
-        address=None,
-    )
 
 
 def _make_xlm_sign_request(wallet, signer_pubkey: str, network_passphrase: str, sep7_pubkey: str | None = None):
@@ -85,7 +71,7 @@ class TestHandlers:
         event_queue = asyncio.Queue()
         await event_queue.put(ButtonEvent.CONFIRM)
         decoder = URDecoder()
-        sign_request = _make_sign_request()
+        sign_request = object()
 
         state, new_decoder, req = await _handle_await_confirm(event_queue, decoder, sign_request)
         assert state == State.SIGNING
@@ -99,56 +85,11 @@ class TestHandlers:
         event_queue = asyncio.Queue()
         await event_queue.put(ButtonEvent.REJECT)
         decoder = URDecoder()
-        sign_request = _make_sign_request()
+        sign_request = object()
 
         state, new_decoder, req = await _handle_await_confirm(event_queue, decoder, sign_request)
         assert state == State.IDLE
         assert req is None
-
-    @pytest.mark.asyncio
-    async def test_format_eth_fields_smoke(self):
-        from wallet import eth as eth_mod
-        req = _make_sign_request(data_type=3, sign_data=b"hello")
-        # data_type 3 falls into the rlp.decode branch and triggers fallback;
-        # the fallback path always yields a hex dump + path row.
-        fields = eth_mod.format_fields(req)
-        assert isinstance(fields, list)
-        assert any(f.label == "Path" for f in fields)
-
-    @pytest.mark.asyncio
-    async def test_handle_parsed_personal_sign(self):
-        from state.machine import _handle_parsed
-        from wallet import Wallet
-
-        render_queue = asyncio.Queue()
-        req = _make_sign_request(data_type=3, sign_data=b"test message")
-        state = await _handle_parsed(Wallet("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"), req, render_queue)
-        assert state == State.AWAIT_CONFIRM
-        renders = await _drain_renders(render_queue)
-        assert any(r.screen == "confirm" for r in renders)
-
-    @pytest.mark.asyncio
-    async def test_handle_parsed_typed_data(self):
-        from state.machine import _handle_parsed
-        from wallet import Wallet
-
-        render_queue = asyncio.Queue()
-        typed_data = {
-            "domain": {"name": "Test", "version": "1", "chainId": 1},
-            "types": {"Msg": [{"name": "x", "type": "string"}]},
-            "primaryType": "Msg",
-            "message": {"x": "hello"},
-        }
-        req = _make_sign_request(
-            data_type=2,
-            sign_data=json.dumps(typed_data).encode(),
-        )
-        state = await _handle_parsed(
-            Wallet("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"),
-            req,
-            render_queue,
-        )
-        assert state == State.AWAIT_CONFIRM
 
     @pytest.mark.asyncio
     async def test_handle_parsed_rejects_unknown_stellar_signer(self):
@@ -228,30 +169,6 @@ class TestHandlers:
 # ---------------------------------------------------------------------------
 
 class TestSignFlow:
-    @pytest.mark.asyncio
-    async def test_eth_signing_produces_result_render(self, monkeypatch):
-        """_handle_signing must produce a 'signing' then 'result' RenderEvent for ETH."""
-        from state.machine import _handle_signing
-        from wallet import keygen, Wallet
-
-        wallet = Wallet(keygen.generate())
-
-        render_queue = asyncio.Queue()
-        sign_request = _make_sign_request(data_type=3, sign_data=b"sign me")
-
-        state, _decoder, req = await _handle_signing(wallet, sign_request, render_queue)
-        assert state == State.DISPLAY_RESULT
-        assert req is None
-
-        renders = await _drain_renders(render_queue)
-        screens = [r.screen for r in renders]
-        assert "signing" in screens
-        assert "result" in screens
-
-        result_event = next(r for r in renders if r.screen == "result")
-        assert isinstance(result_event.data["qr_frames"], list)
-        assert len(result_event.data["qr_frames"]) >= 1
-
     @pytest.mark.asyncio
     async def test_xlm_signing_produces_result_render(self):
         """A SEP-7 URI must drive _handle_signing through to a result QR."""

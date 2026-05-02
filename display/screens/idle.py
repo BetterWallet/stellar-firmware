@@ -23,7 +23,7 @@ def render_scanning(surface, progress: float, overlay: bool = False, preview_ena
         if preview_enabled:
             render_text_centered(surface, "Waiting for camera...", (DISPLAY_WIDTH // 2, DISPLAY_HEIGHT // 2), size=16, color=(150, 150, 150))
         else:
-            render_text_centered(surface, "Point at MetaMask QR", (DISPLAY_WIDTH // 2, 12), size=15, color=(255, 255, 255))
+            render_text_centered(surface, "Point at Stellar QR", (DISPLAY_WIDTH // 2, 12), size=15, color=(255, 255, 255))
 
     # --- Overlay on top of camera preview ---
 
@@ -36,7 +36,7 @@ def render_scanning(surface, progress: float, overlay: bool = False, preview_ena
     if progress > 0:
         render_text_centered(surface, f"Scanning... {int(progress * 100)}%", (DISPLAY_WIDTH // 2, 12), size=15, color=(100, 255, 150))
     else:
-        render_text_centered(surface, "Point at MetaMask QR", (DISPLAY_WIDTH // 2, 12), size=15, color=(255, 255, 255))
+        render_text_centered(surface, "Point at Stellar QR", (DISPLAY_WIDTH // 2, 12), size=15, color=(255, 255, 255))
 
     # Targeting reticle in center
     cx, cy = DISPLAY_WIDTH // 2, DISPLAY_HEIGHT // 2

@@ -16,8 +16,6 @@ from config import (
     DEVICE_METADATA_PATH,
     KEYSTORE_PATH,
 )
-from eip712 import display as eip712_display
-from eip712 import parser as eip712_parser
 from state.states import ButtonEvent, PINEvent, RenderEvent, State
 from ur import decoder as ur_decoder_mod
 from ur import encoder as ur_encoder
@@ -25,8 +23,6 @@ from ur.types import (
     BwStellarAccount,
     BwStellarAccountsPayload,
     BwStellarDevice,
-    EthSignature,
-    EthSignRequest,
     XlmSignRequest,
     XlmSignature,
 )
@@ -127,7 +123,7 @@ async def run(
 async def _handle_setup(event_queue: asyncio.Queue, render_queue: asyncio.Queue) -> State:
     """First-boot: generate mnemonic, show to user, create keystore, show import QR."""
     from wallet import keygen
-    from wallet.derive import derive_eth_account, derive_xlm_keypair
+    from wallet.derive import derive_xlm_keypair
 
     mnemonic = keygen.generate()
     words = mnemonic.split()
@@ -147,9 +143,8 @@ async def _handle_setup(event_queue: asyncio.Queue, render_queue: asyncio.Queue)
         del mnemonic, words
         return State.SETUP   # restart setup with a new mnemonic
 
-    # Derive eth account and xlm keypair for logging/setup UX.
-    # The mnemonic is what's stored — both chain keypairs are re-derivable from it.
-    temp_eth = derive_eth_account(mnemonic)
+    # Derive xlm keypair for logging/setup UX.
+    # The mnemonic is what's stored — Stellar keypairs are re-derivable from it.
     temp_xlm = derive_xlm_keypair(mnemonic)
     keystore.save(KEYSTORE_PATH, mnemonic, pin)
 
@@ -159,16 +154,13 @@ async def _handle_setup(event_queue: asyncio.Queue, render_queue: asyncio.Queue)
         _build_stellar_accounts_payload(setup_wallet),
     )
     await render_queue.put(RenderEvent.result(qr_frames))
-    log.info(
-        "setup complete — eth=%s  xlm=%s",
-        temp_eth.address, temp_xlm.public_key,
-    )
+    log.info("setup complete — xlm=%s", temp_xlm.public_key)
 
     # Wait for user to confirm they scanned it
     await event_queue.get()
 
     # Securely discard secrets from local scope
-    del mnemonic, words, temp_eth, temp_xlm
+    del mnemonic, words, temp_xlm
 
     return State.LOCKED
 
@@ -244,14 +236,7 @@ async def _handle_scanning(
 
 
 async def _handle_parsed(wallet: Wallet, sign_request, render_queue: asyncio.Queue) -> State:
-    if isinstance(sign_request, EthSignRequest):
-        if sign_request.data_type == 2:
-            typed_data = eip712_parser.parse(sign_request.sign_data)
-            fields = eip712_display.flatten(typed_data)
-        else:
-            from wallet import eth as eth_mod
-            fields = eth_mod.format_fields(sign_request)
-    elif isinstance(sign_request, XlmSignRequest):
+    if isinstance(sign_request, XlmSignRequest):
         from stellar import sep7, parser as xlm_parser
         if sign_request.kind != "tx":
             raise ValueError(f"unsupported Stellar sign kind: {sign_request.kind!r}")
@@ -300,10 +285,7 @@ async def _handle_signing(
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, wallet.sign, sign_request)
 
-    if isinstance(sign_request, EthSignRequest):
-        sig = EthSignature(request_id=sign_request.request_id, signature=result)
-        qr_frames = ur_encoder.encode_eth_signature(sig)
-    elif isinstance(sign_request, XlmSignRequest):
+    if isinstance(sign_request, XlmSignRequest):
         sig = XlmSignature(
             request_id=sign_request.request_id,
             signer_pubkey=sign_request.signer_pubkey,
